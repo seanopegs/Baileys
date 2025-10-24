@@ -907,18 +907,29 @@ export const makeSocket = (config: SocketConfig) => {
 		}
 	})
 
-	ws.on('CB:stream:error', (node: BinaryNode) => {
-		logger.error({ node }, 'stream errored out')
+        const clearRoutingInfoIfUnavailable = (statusCode?: number) => {
+                if (statusCode === DisconnectReason.unavailableService && authState.creds.routingInfo) {
+                        logger.warn('Clearing cached routing info due to unavailable service response')
+                        authState.creds.routingInfo = undefined
+                        ev.emit('creds.update', authState.creds)
+                }
+        }
 
-		const { reason, statusCode } = getErrorCodeFromStreamError(node)
+        ws.on('CB:stream:error', (node: BinaryNode) => {
+                logger.error({ node }, 'stream errored out')
 
-		end(new Boom(`Stream Errored (${reason})`, { statusCode, data: node }))
-	})
-	// stream fail, possible logout
-	ws.on('CB:failure', (node: BinaryNode) => {
-		const reason = +(node.attrs.reason || 500)
-		end(new Boom('Connection Failure', { statusCode: reason, data: node.attrs }))
-	})
+                const { reason, statusCode } = getErrorCodeFromStreamError(node)
+
+                clearRoutingInfoIfUnavailable(statusCode)
+
+                end(new Boom(`Stream Errored (${reason})`, { statusCode, data: node }))
+        })
+        // stream fail, possible logout
+        ws.on('CB:failure', (node: BinaryNode) => {
+                const reason = +(node.attrs.reason || 500)
+                clearRoutingInfoIfUnavailable(reason)
+                end(new Boom('Connection Failure', { statusCode: reason, data: node.attrs }))
+        })
 
 	ws.on('CB:ib,,downgrade_webclient', () => {
 		end(new Boom('Multi-device beta not joined', { statusCode: DisconnectReason.multideviceMismatch }))
